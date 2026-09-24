@@ -1,0 +1,156 @@
+name: Release plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. 0.1.0-beta.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+            TAG="v${VERSION}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          fi
+
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: ${VERSION}" >&2
+            exit 1
+          fi
+
+          if [[ "${VERSION}" == *-* ]]; then
+            echo "prerelease=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "prerelease=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Validate manifest
+        shell: python
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(Path("plugin.json").read_text(encoding="utf-8"))
+          required = {
+              "id", "name", "version", "api_version", "app_requires",
+              "description", "requires", "python_requires", "entry",
+          }
+          missing = sorted(required - manifest.keys())
+          if missing:
+              raise SystemExit(f"plugin.json missing fields: {', '.join(missing)}")
+
+          if manifest["id"] != "lab_selection":
+              raise SystemExit("plugin id must be lab_selection")
+          if manifest["api_version"] != 1:
+              raise SystemExit("plugin api_version must be 1")
+          if manifest["entry"] != "plugin.py":
+              raise SystemExit("plugin entry must be plugin.py")
+
+          release = os.environ["RELEASE_VERSION"]
+          manifest_version = str(manifest["version"])
+          release_base = release.split("-", 1)[0]
+          manifest_base = manifest_version.split("-", 1)[0]
+          if release_base != manifest_base:
+              raise SystemExit(
+                  f"release {release} does not match manifest base version {manifest_version}"
+              )
+
+      - name: Check Python syntax
+        run: python -m compileall -q plugin.py client.py routes.py services.py waitlist.py
+
+      - name: Validate package files
+        shell: bash
+        run: |
+          test -f plugin.json
+          test -f plugin.py
+          test -f client.py
+          test -f routes.py
+          test -f services.py
+          test -f waitlist.py
+          test -f requirements.txt
+          test -f templates/lab_selection/index.html
+          test -f static/lab_selection.css
+          test -f static/lab_selection.js
+
+      - name: Build plugin ZIP
+        id: package
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ROOT="lab_selection"
+          OUT="fuckclassroom-plugin-lab-selection-${VERSION}.zip"
+
+          mkdir -p "dist/${ROOT}/templates/lab_selection" "dist/${ROOT}/static" "dist/${ROOT}/docs"
+          cp plugin.json plugin.py client.py routes.py services.py waitlist.py requirements.txt README.md "dist/${ROOT}/"
+          cp templates/lab_selection/index.html "dist/${ROOT}/templates/lab_selection/"
+          cp static/lab_selection.css static/lab_selection.js "dist/${ROOT}/static/"
+          cp docs/protocol.md "dist/${ROOT}/docs/"
+
+          (
+            cd dist
+            zip -r "../${OUT}" "${ROOT}"
+          )
+
+          sha256sum "${OUT}" > "${OUT}.sha256"
+          echo "asset=${OUT}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create tag for manual release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists"
+          else
+            git tag "${TAG}" "${GITHUB_SHA}"
+            git push origin "${TAG}"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          ASSET="${{ steps.package.outputs.asset }}"
+          PRERELEASE="${{ steps.version.outputs.prerelease }}"
+
+          FLAGS=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            FLAGS+=(--prerelease)
+          fi
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ASSET}" "${ASSET}.sha256" --clobber
+          else
+            gh release create "${TAG}"               "${ASSET}" "${ASSET}.sha256"               --title "${TAG}"               --generate-notes               "${FLAGS[@]}"
+          fi

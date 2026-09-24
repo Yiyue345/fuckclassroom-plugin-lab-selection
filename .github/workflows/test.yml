@@ -1,0 +1,39 @@
+name: Test plugin
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate manifest
+        shell: python
+        run: |
+          import json
+          from pathlib import Path
+
+          data = json.loads(Path("plugin.json").read_text(encoding="utf-8"))
+          assert data["id"] == "lab_selection"
+          assert data["api_version"] == 1
+          assert data["entry"] == "plugin.py"
+          assert data["requires"] == ["core_ui"]
+
+      - name: Check Python syntax
+        run: python -m compileall -q plugin.py client.py routes.py services.py waitlist.py
+
+      - name: Check required plugin files
+        shell: bash
+        run: |
+          test -f templates/lab_selection/index.html
+          test -f static/lab_selection.css
+          test -f static/lab_selection.js
+          test -f docs/protocol.md

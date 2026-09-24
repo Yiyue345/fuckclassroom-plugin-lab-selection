@@ -101,6 +101,16 @@ jobs:
 
           mkdir -p "dist/${ROOT}/templates/lab_selection" "dist/${ROOT}/static" "dist/${ROOT}/docs"
           cp plugin.json plugin.py client.py routes.py services.py waitlist.py requirements.txt README.md "dist/${ROOT}/"
+          RELEASE_VERSION="${VERSION}" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("dist/lab_selection/plugin.json")
+          manifest = json.loads(path.read_text(encoding="utf-8"))
+          manifest["version"] = os.environ["RELEASE_VERSION"]
+          path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
           cp templates/lab_selection/index.html "dist/${ROOT}/templates/lab_selection/"
           cp static/lab_selection.css static/lab_selection.js "dist/${ROOT}/static/"
           cp docs/protocol.md "dist/${ROOT}/docs/"

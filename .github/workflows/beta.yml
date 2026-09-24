@@ -1,0 +1,105 @@
+name: Publish beta
+
+on:
+  workflow_run:
+    workflows: ["Test plugin"]
+    types: [completed]
+    branches: ["main"]
+
+permissions:
+  contents: write
+
+jobs:
+  beta:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Resolve beta version
+        id: version
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(Path("plugin.json").read_text(encoding="utf-8"))
+          base = str(manifest["version"]).split("-", 1)[0]
+          beta = f"{base}-beta.{os.environ['GITHUB_RUN_NUMBER']}"
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as out:
+              out.write(f"base={base}\n")
+              out.write(f"version={beta}\n")
+              out.write(f"tag=v{beta}\n")
+
+      - name: Validate manifest and syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("plugin.json").read_text(encoding="utf-8"))
+          required = {
+              "id", "name", "version", "api_version", "app_requires",
+              "description", "requires", "python_requires", "entry",
+          }
+          missing = sorted(required - manifest.keys())
+          if missing:
+              raise SystemExit(f"plugin.json missing fields: {', '.join(missing)}")
+          if manifest["id"] != "lab_selection":
+              raise SystemExit("plugin id must be lab_selection")
+          if manifest["api_version"] != 1:
+              raise SystemExit("plugin api_version must be 1")
+          if manifest["entry"] != "plugin.py":
+              raise SystemExit("plugin entry must be plugin.py")
+          if manifest["requires"] != ["core_ui"]:
+              raise SystemExit("lab_selection must require core_ui")
+          PY
+
+          python -m compileall -q plugin.py client.py routes.py services.py waitlist.py
+
+          test -f templates/lab_selection/index.html
+          test -f static/lab_selection.css
+          test -f static/lab_selection.js
+          test -f docs/protocol.md
+
+      - name: Build plugin ZIP
+        id: package
+        shell: bash
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ROOT="lab_selection"
+          OUT="fuckclassroom-plugin-lab-selection-${VERSION}.zip"
+
+          mkdir -p "dist/${ROOT}/templates/lab_selection" "dist/${ROOT}/static" "dist/${ROOT}/docs"
+          cp plugin.json plugin.py client.py routes.py services.py waitlist.py requirements.txt README.md "dist/${ROOT}/"
+          cp templates/lab_selection/index.html "dist/${ROOT}/templates/lab_selection/"
+          cp static/lab_selection.css static/lab_selection.js "dist/${ROOT}/static/"
+          cp docs/protocol.md "dist/${ROOT}/docs/"
+
+          (
+            cd dist
+            zip -r "../${OUT}" "${ROOT}"
+          )
+
+          sha256sum "${OUT}" > "${OUT}.sha256"
+          echo "asset=${OUT}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          SHA="${{ github.event.workflow_run.head_sha }}"
+          ASSET="${{ steps.package.outputs.asset }}"
+
+          git tag "${TAG}" "${SHA}"
+          git push origin "${TAG}"
+
+          gh release create "${TAG}"             "${ASSET}" "${ASSET}.sha256"             --target "${SHA}"             --title "${TAG}"             --generate-notes             --prerelease

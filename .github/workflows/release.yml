@@ -1,9 +1,6 @@
 name: Release plugin
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -26,13 +23,8 @@ jobs:
         id: version
         shell: bash
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            VERSION="${{ inputs.version }}"
-            TAG="v${VERSION}"
-          else
-            TAG="${GITHUB_REF_NAME}"
-            VERSION="${TAG#v}"
-          fi
+          VERSION="${{ inputs.version }}"
+          TAG="v${VERSION}"
 
           if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid version: ${VERSION}" >&2
@@ -121,8 +113,7 @@ jobs:
           sha256sum "${OUT}" > "${OUT}.sha256"
           echo "asset=${OUT}" >> "${GITHUB_OUTPUT}"
 
-      - name: Create tag for manual release
-        if: github.event_name == 'workflow_dispatch'
+      - name: Create release tag
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

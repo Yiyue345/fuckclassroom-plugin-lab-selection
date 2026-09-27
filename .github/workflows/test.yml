@@ -2,7 +2,7 @@ name: Test plugin
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "plugin-management"]
   pull_request:
   workflow_dispatch:
 
@@ -15,17 +15,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install validation dependencies
+        run: python -m pip install packaging
+
       - name: Validate manifest
         shell: python
         run: |
           import json
           from pathlib import Path
+          from packaging.specifiers import SpecifierSet
+          from packaging.version import Version
 
           data = json.loads(Path("plugin.json").read_text(encoding="utf-8"))
           assert data["id"] == "lab_selection"
           assert data["api_version"] == 1
           assert data["entry"] == "plugin.py"
           assert data["requires"] == ["core_ui"]
+
+          current_host = Version("0.2.0.dev0")
+          app_requires = SpecifierSet(data["app_requires"])
+          assert app_requires.contains(current_host, prereleases=True), (
+              f"plugin app_requires={data['app_requires']} rejects current "
+              f"FuckClassroom {current_host}"
+          )
 
       - name: Check Python syntax
         run: python -m compileall -q plugin.py client.py routes.py services.py waitlist.py

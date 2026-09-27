@@ -3,7 +3,7 @@
   "name": "实验课选课",
   "version": "0.1.0",
   "api_version": 1,
-  "app_requires": ">=0.1,<0.2",
+  "app_requires": ">=0.1,<0.3",
   "description": "FuckClassroom 实验课选课插件，支持实验课程查询、整组选课、时间段选课与本地自动候补。",
   "requires": [
     "core_ui"

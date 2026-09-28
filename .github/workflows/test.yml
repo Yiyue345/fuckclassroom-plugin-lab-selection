@@ -49,7 +49,7 @@ jobs:
           )
 
       - name: Check Python syntax
-        run: python -m compileall -q plugin.py client.py routes.py services.py waitlist.py
+        run: python -m compileall -q plugin.py client.py routes.py services.py waitlist.py scripts/build_registry_artifact.py
 
       - name: Check required plugin files
         shell: bash
@@ -58,3 +58,19 @@ jobs:
           test -f static/lab_selection.css
           test -f static/lab_selection.js
           test -f docs/protocol.md
+
+      - name: Smoke-build Registry v1 artifact
+        shell: bash
+        run: |
+          python scripts/build_registry_artifact.py 0.1.0-ci.0
+          sha256sum -c lab_selection-0.1.0-ci.0.zip.sha256
+          python - <<'PY'
+          import json
+          import zipfile
+
+          with zipfile.ZipFile("lab_selection-0.1.0-ci.0.zip") as archive:
+              assert "plugin.json" in archive.namelist()
+              assert "lab_selection/plugin.json" not in archive.namelist()
+              manifest = json.loads(archive.read("plugin.json"))
+              assert manifest["version"] == "0.1.0-ci.0"
+          PY

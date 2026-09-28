@@ -9,7 +9,15 @@
     "core_ui"
   ],
   "python_requires": [
-    "playwright>=1.45"
+    {
+      "requirement": "playwright>=1.45",
+      "import": "playwright",
+      "optional": false
+    }
   ],
-  "entry": "plugin.py"
+  "execution": "in_process",
+  "entry": "plugin.py",
+  "route_prefix": null,
+  "rpc_api_version": null,
+  "rpc_permissions": []
 }

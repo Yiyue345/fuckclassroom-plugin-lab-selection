@@ -32,73 +32,20 @@ jobs:
           base = str(manifest["version"]).split("-", 1)[0]
           beta = f"{base}-beta.{os.environ['GITHUB_RUN_NUMBER']}"
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as out:
-              out.write(f"base={base}\n")
               out.write(f"version={beta}\n")
               out.write(f"tag=v{beta}\n")
 
-      - name: Validate manifest and syntax
-        shell: bash
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          manifest = json.loads(Path("plugin.json").read_text(encoding="utf-8"))
-          required = {
-              "id", "name", "version", "api_version", "app_requires",
-              "description", "requires", "python_requires", "entry",
-          }
-          missing = sorted(required - manifest.keys())
-          if missing:
-              raise SystemExit(f"plugin.json missing fields: {', '.join(missing)}")
-          if manifest["id"] != "lab_selection":
-              raise SystemExit("plugin id must be lab_selection")
-          if manifest["api_version"] != 1:
-              raise SystemExit("plugin api_version must be 1")
-          if manifest["entry"] != "plugin.py":
-              raise SystemExit("plugin entry must be plugin.py")
-          if manifest["requires"] != ["core_ui"]:
-              raise SystemExit("lab_selection must require core_ui")
-          PY
-
-          python -m compileall -q plugin.py client.py routes.py services.py waitlist.py
-
-          test -f templates/lab_selection/index.html
-          test -f static/lab_selection.css
-          test -f static/lab_selection.js
-          test -f docs/protocol.md
-
-      - name: Build plugin ZIP
+      - name: Build Registry v1 artifact
         id: package
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          ROOT="lab_selection"
-          OUT="fuckclassroom-plugin-lab-selection-${VERSION}.zip"
+          python scripts/build_registry_artifact.py "${VERSION}"
+          echo "asset=lab_selection-${VERSION}.zip" >> "${GITHUB_OUTPUT}"
 
-          mkdir -p "dist/${ROOT}/templates/lab_selection" "dist/${ROOT}/static" "dist/${ROOT}/docs"
-          cp plugin.json plugin.py client.py routes.py services.py waitlist.py requirements.txt README.md "dist/${ROOT}/"
-          RELEASE_VERSION="${VERSION}" python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          path = Path("dist/lab_selection/plugin.json")
-          manifest = json.loads(path.read_text(encoding="utf-8"))
-          manifest["version"] = os.environ["RELEASE_VERSION"]
-          path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-          PY
-          cp templates/lab_selection/index.html "dist/${ROOT}/templates/lab_selection/"
-          cp static/lab_selection.css static/lab_selection.js "dist/${ROOT}/static/"
-          cp docs/protocol.md "dist/${ROOT}/docs/"
-
-          (
-            cd dist
-            zip -r "../${OUT}" "${ROOT}"
-          )
-
-          sha256sum "${OUT}" > "${OUT}.sha256"
-          echo "asset=${OUT}" >> "${GITHUB_OUTPUT}"
+      - name: Verify checksum
+        shell: bash
+        run: sha256sum -c "${{ steps.package.outputs.asset }}.sha256"
 
       - name: Publish prerelease
         env:
@@ -112,4 +59,9 @@ jobs:
           git tag "${TAG}" "${SHA}"
           git push origin "${TAG}"
 
-          gh release create "${TAG}"             "${ASSET}" "${ASSET}.sha256"             --target "${SHA}"             --title "${TAG}"             --generate-notes             --prerelease
+          gh release create "${TAG}" \
+            "${ASSET}" "${ASSET}.sha256" \
+            --target "${SHA}" \
+            --title "${TAG}" \
+            --generate-notes \
+            --prerelease

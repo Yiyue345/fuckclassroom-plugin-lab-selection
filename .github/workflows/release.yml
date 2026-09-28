@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, e.g. 0.1.0-beta.1"
+        description: "Release version, e.g. 0.1.0 or 0.1.0-beta.1"
         required: true
         type: string
 
@@ -24,115 +24,30 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ inputs.version }}"
-          TAG="v${VERSION}"
-
-          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid version: ${VERSION}" >&2
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "Invalid SemVer: ${VERSION}" >&2
             exit 1
           fi
-
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${VERSION}" >> "${GITHUB_OUTPUT}"
           if [[ "${VERSION}" == *-* ]]; then
             echo "prerelease=true" >> "${GITHUB_OUTPUT}"
           else
             echo "prerelease=false" >> "${GITHUB_OUTPUT}"
           fi
 
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
-          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
-
-      - name: Validate manifest
-        shell: python
-        env:
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          import json
-          import os
-          from pathlib import Path
-
-          manifest = json.loads(Path("plugin.json").read_text(encoding="utf-8"))
-          required = {
-              "id", "name", "version", "api_version", "app_requires",
-              "description", "requires", "python_requires", "execution", "entry",
-              "route_prefix", "rpc_api_version", "rpc_permissions",
-          }
-          missing = sorted(required - manifest.keys())
-          if missing:
-              raise SystemExit(f"plugin.json missing fields: {', '.join(missing)}")
-
-          if manifest["id"] != "lab_selection":
-              raise SystemExit("plugin id must be lab_selection")
-          if manifest["api_version"] != 1:
-              raise SystemExit("plugin api_version must be 1")
-          if manifest["entry"] != "plugin.py":
-              raise SystemExit("plugin entry must be plugin.py")
-          if manifest["execution"] != "in_process":
-              raise SystemExit("lab_selection must use in_process execution")
-          if manifest["route_prefix"] is not None or manifest["rpc_api_version"] is not None or manifest["rpc_permissions"]:
-              raise SystemExit("in-process plugin cannot declare RPC runtime fields")
-          expected_python = [{
-              "requirement": "playwright>=1.45",
-              "import": "playwright",
-              "optional": False,
-          }]
-          if manifest["python_requires"] != expected_python:
-              raise SystemExit("python_requires must use Registry v1 structured dependency records")
-
-          release = os.environ["RELEASE_VERSION"]
-          manifest_version = str(manifest["version"])
-          release_base = release.split("-", 1)[0]
-          manifest_base = manifest_version.split("-", 1)[0]
-          if release_base != manifest_base:
-              raise SystemExit(
-                  f"release {release} does not match manifest base version {manifest_version}"
-              )
-
-      - name: Check Python syntax
-        run: python -m compileall -q plugin.py client.py routes.py services.py waitlist.py
-
-      - name: Validate package files
-        shell: bash
-        run: |
-          test -f plugin.json
-          test -f plugin.py
-          test -f client.py
-          test -f routes.py
-          test -f services.py
-          test -f waitlist.py
-          test -f requirements.txt
-          test -f templates/lab_selection/index.html
-          test -f static/lab_selection.css
-          test -f static/lab_selection.js
-
-      - name: Build Registry v1 plugin ZIP
+      - name: Build Registry v1 artifact
         id: package
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          PACKAGE_DIR="dist/package"
-          OUT="lab_selection-${VERSION}.zip"
+          python scripts/build_registry_artifact.py "${VERSION}"
+          echo "asset=lab_selection-${VERSION}.zip" >> "${GITHUB_OUTPUT}"
 
-          mkdir -p "${PACKAGE_DIR}/templates/lab_selection" "${PACKAGE_DIR}/static" "${PACKAGE_DIR}/docs"
-          cp plugin.json plugin.py client.py routes.py services.py waitlist.py requirements.txt README.md "${PACKAGE_DIR}/"
-          RELEASE_VERSION="${VERSION}" python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
+      - name: Verify checksum
+        shell: bash
+        run: sha256sum -c "${{ steps.package.outputs.asset }}.sha256"
 
-          path = Path("dist/package/plugin.json")
-          manifest = json.loads(path.read_text(encoding="utf-8"))
-          manifest["version"] = os.environ["RELEASE_VERSION"]
-          path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-          PY
-          cp templates/lab_selection/index.html "${PACKAGE_DIR}/templates/lab_selection/"
-          cp static/lab_selection.css static/lab_selection.js "${PACKAGE_DIR}/static/"
-          cp docs/protocol.md "${PACKAGE_DIR}/docs/"
-
-          (
-            cd "${PACKAGE_DIR}"
-            zip -r "../../${OUT}" .
-          )
-
-          test "$(unzip -Z1 "${OUT}" | grep -c '^plugin.json
       - name: Create release tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -168,53 +83,4 @@ jobs:
               --title "${TAG}" \
               --generate-notes \
               "${FLAGS[@]}"
-          fi
-)" -eq 1
-          if unzip -Z1 "${OUT}" | grep -q '^lab_selection/'; then
-            echo "Registry v1 artifact must not wrap files in a lab_selection/ directory" >&2
-            exit 1
-          fi
-          unzip -p "${OUT}" plugin.json | RELEASE_VERSION="${VERSION}" python -c '
-          import json, os, sys
-          manifest = json.load(sys.stdin)
-          assert manifest["id"] == "lab_selection"
-          assert manifest["version"] == os.environ["RELEASE_VERSION"]
-          assert manifest["execution"] == "in_process"
-          assert manifest["entry"] == "plugin.py"
-          '
-          sha256sum "${OUT}" > "${OUT}.sha256"
-          sha256sum -c "${OUT}.sha256"
-          echo "asset=${OUT}" >> "${GITHUB_OUTPUT}"
-
-      - name: Create release tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "Tag ${TAG} already exists"
-          else
-            git tag "${TAG}" "${GITHUB_SHA}"
-            git push origin "${TAG}"
-          fi
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          TAG="${{ steps.version.outputs.tag }}"
-          ASSET="${{ steps.package.outputs.asset }}"
-          PRERELEASE="${{ steps.version.outputs.prerelease }}"
-
-          FLAGS=()
-          if [[ "${PRERELEASE}" == "true" ]]; then
-            FLAGS+=(--prerelease)
-          fi
-
-          if gh release view "${TAG}" >/dev/null 2>&1; then
-            gh release upload "${TAG}" "${ASSET}" "${ASSET}.sha256" --clobber
-          else
-            gh release create "${TAG}"               "${ASSET}" "${ASSET}.sha256"               --title "${TAG}"               --generate-notes               "${FLAGS[@]}"
           fi

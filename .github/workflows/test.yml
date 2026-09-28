@@ -31,6 +31,15 @@ jobs:
           assert data["api_version"] == 1
           assert data["entry"] == "plugin.py"
           assert data["requires"] == ["core_ui"]
+          assert data["execution"] == "in_process"
+          assert data["route_prefix"] is None
+          assert data["rpc_api_version"] is None
+          assert data["rpc_permissions"] == []
+          assert data["python_requires"] == [{
+              "requirement": "playwright>=1.45",
+              "import": "playwright",
+              "optional": False,
+          }]
 
           current_host = Version("0.2.0.dev0")
           app_requires = SpecifierSet(data["app_requires"])

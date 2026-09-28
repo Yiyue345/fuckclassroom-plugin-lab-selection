@@ -52,7 +52,8 @@ jobs:
           manifest = json.loads(Path("plugin.json").read_text(encoding="utf-8"))
           required = {
               "id", "name", "version", "api_version", "app_requires",
-              "description", "requires", "python_requires", "entry",
+              "description", "requires", "python_requires", "execution", "entry",
+              "route_prefix", "rpc_api_version", "rpc_permissions",
           }
           missing = sorted(required - manifest.keys())
           if missing:
@@ -64,6 +65,17 @@ jobs:
               raise SystemExit("plugin api_version must be 1")
           if manifest["entry"] != "plugin.py":
               raise SystemExit("plugin entry must be plugin.py")
+          if manifest["execution"] != "in_process":
+              raise SystemExit("lab_selection must use in_process execution")
+          if manifest["route_prefix"] is not None or manifest["rpc_api_version"] is not None or manifest["rpc_permissions"]:
+              raise SystemExit("in-process plugin cannot declare RPC runtime fields")
+          expected_python = [{
+              "requirement": "playwright>=1.45",
+              "import": "playwright",
+              "optional": False,
+          }]
+          if manifest["python_requires"] != expected_python:
+              raise SystemExit("python_requires must use Registry v1 structured dependency records")
 
           release = os.environ["RELEASE_VERSION"]
           manifest_version = str(manifest["version"])
@@ -91,36 +103,87 @@ jobs:
           test -f static/lab_selection.css
           test -f static/lab_selection.js
 
-      - name: Build plugin ZIP
+      - name: Build Registry v1 plugin ZIP
         id: package
         shell: bash
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          ROOT="lab_selection"
-          OUT="fuckclassroom-plugin-lab-selection-${VERSION}.zip"
+          PACKAGE_DIR="dist/package"
+          OUT="lab_selection-${VERSION}.zip"
 
-          mkdir -p "dist/${ROOT}/templates/lab_selection" "dist/${ROOT}/static" "dist/${ROOT}/docs"
-          cp plugin.json plugin.py client.py routes.py services.py waitlist.py requirements.txt README.md "dist/${ROOT}/"
+          mkdir -p "${PACKAGE_DIR}/templates/lab_selection" "${PACKAGE_DIR}/static" "${PACKAGE_DIR}/docs"
+          cp plugin.json plugin.py client.py routes.py services.py waitlist.py requirements.txt README.md "${PACKAGE_DIR}/"
           RELEASE_VERSION="${VERSION}" python - <<'PY'
           import json
           import os
           from pathlib import Path
 
-          path = Path("dist/lab_selection/plugin.json")
+          path = Path("dist/package/plugin.json")
           manifest = json.loads(path.read_text(encoding="utf-8"))
           manifest["version"] = os.environ["RELEASE_VERSION"]
           path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
           PY
-          cp templates/lab_selection/index.html "dist/${ROOT}/templates/lab_selection/"
-          cp static/lab_selection.css static/lab_selection.js "dist/${ROOT}/static/"
-          cp docs/protocol.md "dist/${ROOT}/docs/"
+          cp templates/lab_selection/index.html "${PACKAGE_DIR}/templates/lab_selection/"
+          cp static/lab_selection.css static/lab_selection.js "${PACKAGE_DIR}/static/"
+          cp docs/protocol.md "${PACKAGE_DIR}/docs/"
 
           (
-            cd dist
-            zip -r "../${OUT}" "${ROOT}"
+            cd "${PACKAGE_DIR}"
+            zip -r "../../${OUT}" .
           )
 
+          test "$(unzip -Z1 "${OUT}" | grep -c '^plugin.json
+      - name: Create release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists"
+          else
+            git tag "${TAG}" "${GITHUB_SHA}"
+            git push origin "${TAG}"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          ASSET="${{ steps.package.outputs.asset }}"
+          PRERELEASE="${{ steps.version.outputs.prerelease }}"
+
+          FLAGS=()
+          if [[ "${PRERELEASE}" == "true" ]]; then
+            FLAGS+=(--prerelease)
+          fi
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ASSET}" "${ASSET}.sha256" --clobber
+          else
+            gh release create "${TAG}" \
+              "${ASSET}" "${ASSET}.sha256" \
+              --title "${TAG}" \
+              --generate-notes \
+              "${FLAGS[@]}"
+          fi
+)" -eq 1
+          if unzip -Z1 "${OUT}" | grep -q '^lab_selection/'; then
+            echo "Registry v1 artifact must not wrap files in a lab_selection/ directory" >&2
+            exit 1
+          fi
+          unzip -p "${OUT}" plugin.json | RELEASE_VERSION="${VERSION}" python -c '
+          import json, os, sys
+          manifest = json.load(sys.stdin)
+          assert manifest["id"] == "lab_selection"
+          assert manifest["version"] == os.environ["RELEASE_VERSION"]
+          assert manifest["execution"] == "in_process"
+          assert manifest["entry"] == "plugin.py"
+          '
           sha256sum "${OUT}" > "${OUT}.sha256"
+          sha256sum -c "${OUT}.sha256"
           echo "asset=${OUT}" >> "${GITHUB_OUTPUT}"
 
       - name: Create release tag

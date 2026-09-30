@@ -15,7 +15,7 @@ FuckClassroom 的独立实验课选课插件。插件 ID 为 `lab_selection`。
 
 ## 兼容性
 
-- FuckClassroom: `>=0.1,<0.2`
+- FuckClassroom: `>=0.1,<0.3`
 - Plugin API: `1`
 - Python dependency: `playwright>=1.45`
 - Required host plugin: `core_ui`
@@ -53,6 +53,8 @@ FuckClassroom 的独立实验课选课插件。插件 ID 为 `lab_selection`。
 ```
 
 `plugin.py` 是插件入口；其余模块通过插件包内相对导入加载。对宿主能力的访问使用 `fuckclassroom.*` 绝对导入。
+
+实验课插件不再依赖宿主 `fuckclassroom.course_selection` 的模型或异常类型；跨边界错误使用稳定的 `PluginServiceError` 契约。
 
 ## 安全约束
 

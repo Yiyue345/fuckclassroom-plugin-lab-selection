@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from fuckclassroom.web.responses import task_started_response
-from fuckclassroom.course_selection.models import CourseSelectionApiError
+from fuckclassroom.core.plugins import PluginServiceError
 
 
 class SelectionRequest(BaseModel):
@@ -44,7 +44,7 @@ def build_router(context):
     def invoke(operation, *args, **kwargs):
         try:
             return operation(*args, **kwargs)
-        except (CourseSelectionApiError, FileNotFoundError) as exc:
+        except (PluginServiceError, FileNotFoundError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.get("/api/lab-selection/courses")

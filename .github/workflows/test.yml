@@ -35,7 +35,8 @@ jobs:
           assert data["route_prefix"] is None
           assert data["rpc_api_version"] is None
           assert data["rpc_permissions"] == []
-          assert data["python_requires"] == []\n
+          assert data["python_requires"] == []
+
           current_host = Version("0.2.0.dev0")
           app_requires = SpecifierSet(data["app_requires"])
           assert app_requires.contains(current_host, prereleases=True), (

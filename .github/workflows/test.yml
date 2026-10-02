@@ -30,17 +30,12 @@ jobs:
           assert data["id"] == "lab_selection"
           assert data["api_version"] == 1
           assert data["entry"] == "plugin.py"
-          assert data["requires"] == ["core_ui"]
+          assert data["requires"] == ["core_ui", "course_selection"]
           assert data["execution"] == "in_process"
           assert data["route_prefix"] is None
           assert data["rpc_api_version"] is None
           assert data["rpc_permissions"] == []
-          assert data["python_requires"] == [{
-              "requirement": "playwright>=1.45",
-              "import": "playwright",
-              "optional": False,
-          }]
-
+          assert data["python_requires"] == []\n
           current_host = Version("0.2.0.dev0")
           app_requires = SpecifierSet(data["app_requires"])
           assert app_requires.contains(current_host, prereleases=True), (
@@ -58,6 +53,11 @@ jobs:
             echo "Lab Selection must not depend on the host course-selection implementation" >&2
             exit 1
           fi
+          if grep -REn 'fuckclassroom\.auth\.academic' --include='*.py' . --exclude-dir=.git; then
+            echo "Lab Selection must consume academic_session from the service container" >&2
+            exit 1
+          fi
+          grep -F 'context.services.get("academic_session")' services.py
 
       - name: Check required plugin files
         shell: bash

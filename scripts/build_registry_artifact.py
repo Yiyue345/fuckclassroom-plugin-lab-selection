@@ -61,8 +61,8 @@ def validate_manifest(manifest: dict[str, object], version: str) -> None:
         raise ValueError("lab_selection must use in_process execution")
     if manifest["entry"] != "plugin.py":
         raise ValueError("plugin entry must be plugin.py")
-    if manifest["requires"] != ["core_ui"]:
-        raise ValueError("lab_selection must require core_ui")
+    if manifest["requires"] != ["core_ui", "course_selection"]:
+        raise ValueError("lab_selection must require core_ui and course_selection")
     if (
         manifest["route_prefix"] is not None
         or manifest["rpc_api_version"] is not None

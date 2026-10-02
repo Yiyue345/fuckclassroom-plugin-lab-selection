@@ -69,15 +69,8 @@ def validate_manifest(manifest: dict[str, object], version: str) -> None:
         or manifest["rpc_permissions"] != []
     ):
         raise ValueError("in-process plugin cannot declare RPC runtime fields")
-    expected_python = [
-        {
-            "requirement": "playwright>=1.45",
-            "import": "playwright",
-            "optional": False,
-        }
-    ]
-    if manifest["python_requires"] != expected_python:
-        raise ValueError("python_requires must use Registry v1 structured records")
+    if manifest["python_requires"] != []:
+        raise ValueError("lab_selection has no direct Python runtime dependencies")
 
 
 def build(version: str, root: Path) -> tuple[Path, Path]:

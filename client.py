@@ -7,7 +7,7 @@ import re
 from contextlib import contextmanager
 from urllib.parse import unquote, urlencode
 
-from fuckclassroom.course_selection.models import CourseSelectionApiError
+from fuckclassroom.core.plugins import PluginServiceError
 
 ENTRY = "/student/for-std/extra-system/newcapec-experiment/course/stu"
 API = "/guet-lab-system"
@@ -22,7 +22,7 @@ PATHS = {
 }
 
 
-class LabSelectionError(CourseSelectionApiError):
+class LabSelectionError(PluginServiceError):
     pass
 
 

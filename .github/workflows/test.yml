@@ -51,6 +51,14 @@ jobs:
       - name: Check Python syntax
         run: python -m compileall -q plugin.py client.py routes.py services.py waitlist.py scripts/build_registry_artifact.py
 
+      - name: Check plugin boundaries
+        shell: bash
+        run: |
+          if grep -REn 'fuckclassroom\.course_selection' --include='*.py' . --exclude-dir=.git; then
+            echo "Lab Selection must not depend on the host course-selection implementation" >&2
+            exit 1
+          fi
+
       - name: Check required plugin files
         shell: bash
         run: |

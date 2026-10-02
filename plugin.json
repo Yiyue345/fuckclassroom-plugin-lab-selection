@@ -6,15 +6,10 @@
   "app_requires": ">=0.1,<0.3",
   "description": "FuckClassroom 实验课选课插件，支持实验课程查询、整组选课、时间段选课与本地自动候补。",
   "requires": [
-    "core_ui"
+    "core_ui",
+    "course_selection"
   ],
-  "python_requires": [
-    {
-      "requirement": "playwright>=1.45",
-      "import": "playwright",
-      "optional": false
-    }
-  ],
+  "python_requires": [],
   "execution": "in_process",
   "entry": "plugin.py",
   "route_prefix": null,

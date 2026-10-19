@@ -54,7 +54,7 @@ FuckClassroom 的独立实验课选课插件。插件 ID 为 `lab_selection`。
 
 `plugin.py` 是插件入口；其余模块通过插件包内相对导入加载。对宿主能力的访问使用 `fuckclassroom.*` 绝对导入。
 
-实验课插件不再依赖宿主 `fuckclassroom.course_selection` 的模型或异常类型；跨边界错误使用稳定的 `PluginServiceError` 契约。
+实验课插件不再依赖宿主 `fuckclassroom.course_selection` 的模型或异常类型；跨边界错误使用稳定的 `PluginServiceError` 契约。\n\n本科教务登录、WebVPN/Hy2 与 `academic_session` 由 `course_selection` 插件统一拥有；实验课插件只通过 ServiceContainer 使用该服务，不再要求宿主提供 `auth.academic` 兜底实现。
 
 ## 安全约束
 

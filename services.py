@@ -1,7 +1,6 @@
 import threading
 from datetime import datetime, timedelta, timezone
 
-from fuckclassroom.auth.academic import get_academic_session
 from .client import LabRejected, LabSelectionError, LabSubmissionUncertain, connect, rows
 
 
@@ -204,6 +203,6 @@ class LabSelectionService:
 def setup_services(context):
     from .waitlist import LabWaitlist
 
-    lab = LabSelectionService(get_academic_session(context))
+    lab = LabSelectionService(context.services.get("academic_session"))
     context.services.add("lab_selection", lab)
     context.services.add("lab_waitlist", LabWaitlist(lab, context.config.data_dir / "lab_selection" / "waitlist.json"))
